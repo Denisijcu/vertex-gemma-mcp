@@ -1,0 +1,28 @@
+# Pesos de modelos y datasets (NUNCA subir a GitHub)
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.jsonl
+models/*
+!models/.gitkeep
+outputs/
+unsloth_compiled_cache/
+
+# Entornos virtuales y caché de Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Variables de entorno y secretos
+.env
+*.pem
+*.key
+
+# Sistema e IDEs
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
