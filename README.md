@@ -59,3 +59,30 @@ python src/mcp_client_agent.py
 
 ---
 **Desarrollado por [Vertex Coders LLC](https://vertexcoders.com)**
+
+# Vertex Gemma MCP — Autonomous Security Audit Agent
+
+Autonomous, lightweight (<4GB VRAM) security audit agent powered by a custom fine-tuned **Gemma-2-2B-it** model (via QLoRA/Unsloth on Kaggle) and integrated natively via the **Model Context Protocol (MCP v2.x)**.
+
+## 🛠️ Architecture Stack
+* **LLM Core**: Gemma-2-2B-it (Quantized to Q4_K_M GGUF), fine-tuned with `glaiveai/glaive-function-calling-v2`.
+* **Inference Runtime**: LM Studio (Local Server mode with GPU Offload).
+* **Protocol**: Model Context Protocol (`MCPServer` over `stdio`).
+* **Backend Stack**: Python, `asyncio`, `httpx`, `pydantic`.
+
+---
+
+## 🚀 Available MCP Tools (`mcp_audit_server.py`)
+
+1. **`audit_security_headers(url)`**: Audits defensive HTTP security headers (HSTS, CSP, X-Frame-Options, CORS, Server Banners) on local endpoints.
+2. **`inspect_openapi_routes(openapi_json_url)`**: Extracts paths and allowed HTTP methods from a Swagger/OpenAPI schema for attack surface mapping.
+3. **`static_code_security_scan(source_code_snippet)`**: Performs static code analysis (SAST) on source snippets to detect dangerous patterns (`eval()`, `exec()`, `shell=True`, SQL injection concatenation, insecure deserialization).
+
+---
+
+## ⚙️ LM Studio Configuration & Prompt Template
+
+To make LM Studio correctly inject the MCP tools into Gemma without throwing system role errors, configure your model's **Jinja Prompt Template** with this exact snippet:
+
+```jinja2
+{% for message in messages %}{% if loop.first and message['role'] == 'user' %}{{ '<start_of_turn>user\nYou are a security audit assistant connected to an MCP server.\n' }}{% if tools %}{{ 'You are a helpful assistant with access to the following functions. Use them if required -\n' + (tools | tojson) + '\n\n' }}{% endif %}{{ 'Task: ' + (message['content'] | trim) + '<end_of_turn>\n' }}{% elif message['role'] == 'system' %}{{ '' }}{% else %}{% if (message['role'] == 'assistant') %}{% set role = 'model' %}{% else %}{% set role = 'user' %}{% endif %}{{ '<start_of_turn>' + role + '\n' + (message['content'] | trim) + '<end_of_turn>\n' }}{% endif %}{% endfor %}{% if add_generation_prompt %}{{ '<start_of_turn>model\n' }}{% endif %}

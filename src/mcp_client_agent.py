@@ -12,36 +12,51 @@ client = OpenAI(base_url="http://localhost:1234/v1", api_key="lm-studio")
 MODEL_ID = "vertex-gemma-2b-mcp"
 
 def extract_tool_call(response_text: str) -> dict | None:
-    """Extrae de forma segura el JSON de <functioncall> limpiando saltos de línea y comillas."""
+    """Extrae tool calls de Gemma, manejando fallos de sintaxis por comillas anidadas."""
     match = re.search(r'\{.*\}', response_text, re.DOTALL)
     if not match:
         return None
     
-    # Limpia saltos de línea y tabulaciones que rompen el json.loads en bloques multilínea
     json_str = match.group(0).strip()
-    json_str = re.sub(r'[\r\n\t]+', ' ', json_str)
     
+    # 1. Intento de decodificación estándar
     try:
         data = json.loads(json_str)
-        if "arguments" in data:
-            args = data["arguments"]
-            # Si viene como string JSON o string con comillas simples escapadas
-            if isinstance(args, str):
-                args_clean = args.strip()
-                if args_clean.startswith("'") and args_clean.endswith("'"):
-                    args_clean = args_clean[1:-1]
-                data["arguments"] = json.loads(args_clean)
+        if "arguments" in data and isinstance(data["arguments"], str):
+            data["arguments"] = json.loads(data["arguments"])
         return data
-    except json.JSONDecodeError:
-        try:
-            import ast
-            evaluated = ast.literal_eval(json_str)
-            if "arguments" in evaluated and isinstance(evaluated["arguments"], str):
-                evaluated["arguments"] = json.loads(evaluated["arguments"].replace("'", '"'))
-            return evaluated
-        except Exception as e:
-            print(f"[-] Error crítico parseando tool call: {e} | Raw string: {json_str}")
+    except Exception:
+        pass
+
+    # 2. Extracción de emergencia por Regex para conflictos de comillas en Glaive
+    try:
+        name_match = re.search(r'"name"\s*:\s*"([^"]+)"', json_str)
+        if not name_match:
             return None
+        tool_name = name_match.group(1)
+        
+        # Si es la herramienta de análisis estático, extraemos el snippet directamente por patrón
+        if tool_name == "static_code_security_scan":
+            code_match = re.search(r'"source_code_snippet"\s*:\s*["\'](.*?)["\']\s*\}', json_str, re.DOTALL)
+            if code_match:
+                code_snippet = code_match.group(1).replace(r"\'", "'")
+                return {
+                    "name": tool_name,
+                    "arguments": {"source_code_snippet": code_snippet}
+                }
+                
+        # Para otras herramientas con argumentos simples tipo URL
+        url_match = re.search(r'"url"\s*:\s*["\'](.*?)["\']', json_str)
+        if url_match:
+            return {
+                "name": tool_name,
+                "arguments": {"url": url_match.group(1)}
+            }
+            
+        return None
+    except Exception as e:
+        print(f"[-] Error crítico en parser de emergencia: {e}")
+        return None
 
 async def run_audit(user_task: str):
     server_script = str(Path(__file__).parent / "mcp_audit_server.py")
@@ -121,4 +136,4 @@ async def run_audit(user_task: str):
                 print("[-] No se detectó un JSON de herramienta válido.")
 
 if __name__ == "__main__":
-    asyncio.run(run_audit("Audit the security headers of http://localhost:8000"))
+    asyncio.run(run_audit("Perform a static security scan on this snippet: user_input = request.GET.get('cmd'); eval(user_input)"))
